@@ -7,6 +7,11 @@ on:
     # a guarda fina de janela e de pregão fechado está no coletor.py.
     - cron: "*/10 11-21 * * 1-5"
   workflow_dispatch:
+    inputs:
+      forcar:
+        description: "Publicar mesmo fora da janela de pregão (para teste)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -32,7 +37,7 @@ jobs:
           python-version: "3.12"
 
       - name: Rodar o coletor
-        run: python coletor.py
+        run: python coletor.py ${{ inputs.forcar && '--forcar' || '' }}
 
       - name: Publicar se algo mudou
         run: |
