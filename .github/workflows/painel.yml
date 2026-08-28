@@ -1,0 +1,58 @@
+name: painel
+
+on:
+  schedule:
+    # */10 das 11h às 21h UTC = 08:00–18:00 BRT, segunda a sexta.
+    # O cron do GitHub é impreciso (atrasa 3–10 min em pico) e não sabe feriado:
+    # a guarda fina de janela e de pregão fechado está no coletor.py.
+    - cron: "*/10 11-21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: painel
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    env:
+      # 2 dias úteis a partir da ativação. Passou daqui, o painel sela e o
+      # workflow se desliga sozinho. Reativar depois: gh workflow enable painel.yml
+      DATA_FIM: "2026-08-31"
+      TZ: America/Sao_Paulo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Rodar o coletor
+        run: python coletor.py
+
+      - name: Publicar se algo mudou
+        run: |
+          if git diff --quiet -- docs/; then
+            echo "docs/ sem mudança — nada a publicar"
+            exit 0
+          fi
+          git config user.name "motor-na-mesa[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          git commit -m "painel: $(TZ=America/Sao_Paulo date '+%d/%m %H:%M')"
+          git push
+
+      - name: Desligar o monitoramento no fim do prazo
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HOJE=$(TZ=America/Sao_Paulo date +%F)
+          if [[ "$HOJE" > "$DATA_FIM" ]]; then
+            echo "prazo encerrado em $DATA_FIM — desligando o workflow"
+            gh workflow disable painel.yml --repo "$GITHUB_REPOSITORY"
+          fi

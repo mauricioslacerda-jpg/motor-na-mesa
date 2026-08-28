@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor na Mesa — ao vivo</title>
+<meta name="description" content="O motor de daytrade rodando ao vivo sobre o Ibovespa, com as manchetes do mercado ao lado.">
+<style>
+  :root {
+    --bg:#12161d; --surface:#1a202a; --surface2:#212a36; --line:#2c3644;
+    --ink:#e8ebef; --muted:#95a0ae; --faint:#5d6875;
+    --ema10:#b07a24; --ema10-vivid:#d99f3f; --ema50:#5b8dd9;
+    --alta:#2e9e6b; --baixa:#d64550; --neutro:#8b95a3;
+    --chip-alta:rgba(46,158,107,.16); --chip-baixa:rgba(214,69,80,.16); --chip-neutra:rgba(139,149,163,.16);
+    --preco:#c6cdd6;
+  }
+  @media (prefers-color-scheme: light) { :root {
+    --bg:#f4f5f3; --surface:#ffffff; --surface2:#eef0ee; --line:#dcdfda;
+    --ink:#1c222b; --muted:#5a6472; --faint:#9aa3ad;
+    --ema10:#996312; --ema10-vivid:#996312; --ema50:#3f6fb8;
+    --alta:#1f7d52; --baixa:#bb3641; --neutro:#6b7684;
+    --chip-alta:rgba(31,125,82,.12); --chip-baixa:rgba(187,54,65,.12); --chip-neutra:rgba(107,118,132,.12);
+    --preco:#3a434f;
+  } }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); margin:0;
+         font:16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:44px 20px 64px; }
+  .eyebrow { font-size:12px; letter-spacing:.18em; text-transform:uppercase;
+             color:var(--ema10-vivid); font-weight:600; }
+  h1 { font-family:Georgia,"Times New Roman",serif; font-weight:400;
+       font-size:clamp(28px,5vw,44px); line-height:1.12; margin:.35em 0 .3em;
+       letter-spacing:-.01em; }
+  h1 em { font-style:italic; color:var(--ema10-vivid); }
+  h2 { font-family:Georgia,serif; font-weight:400; font-size:22px; margin:2.4em 0 .5em; }
+  h2::after { content:""; display:block; width:44px; height:2px; background:var(--ema10); margin-top:10px; }
+  p { max-width:68ch; }
+  .lede { color:var(--muted); max-width:62ch; margin:0 0 6px; font-size:17px; }
+  .aovivo { display:inline-flex; align-items:center; gap:8px; font-size:12.5px;
+            font-family:Consolas,ui-monospace,monospace; color:var(--muted);
+            background:var(--surface); border:1px solid var(--line); border-radius:999px;
+            padding:5px 13px; margin-top:14px; }
+  .pisca { width:8px; height:8px; border-radius:50%; background:var(--alta);
+           box-shadow:0 0 0 0 rgba(46,158,107,.6); animation:pulso 2.4s infinite; }
+  @keyframes pulso { 70% { box-shadow:0 0 0 7px rgba(46,158,107,0); } 100% { box-shadow:0 0 0 0 rgba(46,158,107,0); } }
+  .selo { display:inline-block; font-size:12.5px; color:var(--baixa); border:1px solid var(--baixa);
+          border-radius:999px; padding:4px 12px; margin:14px 0 0 8px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:10px; margin:26px 0 6px; }
+  .stat { background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:14px 16px; }
+  .stat b { display:block; font-size:25px; font-weight:700; font-family:Consolas,ui-monospace,monospace;
+            font-variant-numeric:tabular-nums; }
+  .stat span { font-size:12.5px; color:var(--muted); }
+  .up { color:var(--alta); } .down { color:var(--baixa); }
+  figure { margin:18px 0 6px; background:var(--surface); border:1px solid var(--line);
+           border-radius:6px; padding:14px 14px 8px; }
+  figcaption { font-size:12.5px; color:var(--muted); padding:6px 4px 8px; max-width:70ch; }
+  .legenda { display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); padding:2px 4px 10px; }
+  .legenda i { display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin-right:6px; }
+  canvas { width:100%; height:auto; display:block; }
+  .tbl { overflow-x:auto; border:1px solid var(--line); border-radius:6px; margin:14px 0; }
+  table { border-collapse:collapse; width:100%; min-width:680px; font-size:13.5px; }
+  th { text-align:left; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+       padding:10px 12px; border-bottom:1px solid var(--line); background:var(--surface); }
+  td { padding:9px 12px; border-bottom:1px solid var(--line);
+       font-family:Consolas,ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+  tr:last-child td { border-bottom:none; }
+  .chip { display:inline-block; font-size:11.5px; padding:2px 9px; border-radius:999px;
+          font-family:"Segoe UI",system-ui,sans-serif; }
+  .chip.alta { background:var(--chip-alta); color:var(--alta); }
+  .chip.baixa { background:var(--chip-baixa); color:var(--baixa); }
+  .chip.neutra { background:var(--chip-neutra); color:var(--neutro); }
+  .noticias { list-style:none; padding:0; margin:14px 0; }
+  .noticias li { border-bottom:1px solid var(--line); padding:11px 2px; display:flex; gap:14px; align-items:baseline; }
+  .noticias li:last-child { border-bottom:none; }
+  .noticias time { font-family:Consolas,ui-monospace,monospace; font-size:12.5px; color:var(--faint); flex:0 0 44px; }
+  .noticias a { color:var(--ink); text-decoration:none; border-bottom:1px solid transparent; }
+  .noticias a:hover { border-bottom-color:var(--ema10); }
+  .regra { background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--ema10);
+           border-radius:6px; padding:16px 20px; margin:14px 0; }
+  .regra p { margin:.4em 0; }
+  footer { color:var(--faint); font-size:12.5px; border-top:1px solid var(--line);
+           margin-top:44px; padding-top:18px; }
+  footer p { max-width:74ch; margin:.5em 0; }
+  .vazio { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Daytrade WIN · laboratório</p>
+  <h1>O motor <em>na mesa</em>, ao vivo</h1>
+  <p class="lede">O mesmo código do backtest rodando sobre o Ibovespa de hoje, com as manchetes
+     do mercado ao lado. Nenhuma ordem é enviada: isto é um placar, não uma corretora.</p>
+  <p><span class="aovivo"><span class="pisca"></span><span id="faixa">carregando…</span></span><span id="selo"></span></p>
+
+  <div class="stats" id="stats"></div>
+
+  <h2>O pregão e os disparos</h2>
+  <figure>
+    <div class="legenda">
+      <span><i style="background:var(--ema10)"></i>média rápida (10)</span>
+      <span><i style="background:var(--ema50)"></i>média lenta (50)</span>
+      <span><i style="background:var(--alta)"></i>compra</span>
+      <span><i style="background:var(--baixa)"></i>venda</span>
+    </div>
+    <canvas id="grafico" width="1840" height="760"></canvas>
+    <figcaption id="legenda-grafico"></figcaption>
+  </figure>
+
+  <h2>Boletas da janela</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Entrada</th><th>Saída</th><th>Lado</th><th>Saiu por</th><th>Resultado</th></tr></thead>
+    <tbody id="boletas"></tbody>
+  </table></div>
+
+  <h2>O que o mercado está lendo</h2>
+  <ul class="noticias" id="noticias"></ul>
+
+  <h2>As regras, por extenso</h2>
+  <div class="regra" id="regras"></div>
+
+  <footer>
+    <p><b>Como ler isto.</b> A média rápida cruzando a lenta para cima manda comprar; para baixo,
+       vender. A entrada é sempre na abertura do candle seguinte ao sinal — o motor nunca decide
+       olhando um preço que ainda não existia.</p>
+    <p><b>O motor é pessimista de propósito.</b> Gap que atravessa o stop preenche na abertura, não
+       no stop; stop e alvo no mesmo candle, o stop bateu primeiro; entrada e stop pagam
+       deslizamento; posição nunca vira o dia. Se o número aparece bom aqui, é apesar disso.</p>
+    <p><b>Fontes e limites.</b> Preços do Yahoo Finance (Ibovespa, candles de 15 minutos, atraso
+       de cerca de 15 min). Manchetes do RSS do InfoMoney. O Ibovespa é o índice à vista, não o
+       mini-índice futuro — serve para ver o motor funcionando, não para aprovar estratégia.</p>
+    <p><b>Isto não é recomendação de investimento.</b> Amostra curta não aprova nada: a aprovação
+       depende dos gates do projeto (backtest duplo concordante, 100 trades em simulador, tetos de
+       risco declarados por escrito).</p>
+  </footer>
+</main>
+
+<script>
+const D = /*{{DADOS}}*/null;
+
+const fmt = n => n.toLocaleString("pt-BR");
+const el = id => document.getElementById(id);
+
+function faixa() {
+  el("faixa").textContent = `AO VIVO · atualizado às ${D.atualizado} · pregão de ${D.data_pregao}`;
+  if (D.selo) { el("selo").className = "selo"; el("selo").textContent = D.selo; }
+}
+
+function stats() {
+  const d = D.metricas_dia, j = D.metricas_janela;
+  const v = D.variacao_dia_pct;
+  const cls = x => x > 0 ? "up" : x < 0 ? "down" : "";
+  const cartoes = [
+    [`${fmt(D.ultimo_preco)}`, "Ibovespa, último fechamento de 15 min", ""],
+    [`${v === null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2) + "%"}`, "variação no dia", cls(v)],
+    [`${d.total}`, "disparos hoje", ""],
+    [`${d.resultado_ticks > 0 ? "+" : ""}${d.resultado_ticks}`, "resultado de hoje, em ticks", cls(d.resultado_ticks)],
+    [`${j.total}`, "disparos na janela de 5 dias", ""],
+    [`${j.fator_de_lucro === null ? "—" : j.fator_de_lucro}`, "fator de lucro da janela", ""],
+  ];
+  el("stats").innerHTML = cartoes.map(([b, s, c]) =>
+    `<div class="stat"><b class="${c}">${b}</b><span>${s}</span></div>`).join("");
+}
+
+function grafico() {
+  const cv = el("grafico"), ctx = cv.getContext("2d");
+  const css = getComputedStyle(document.documentElement);
+  const cor = n => css.getPropertyValue(n).trim();
+  const W = cv.width, H = cv.height, P = { t: 24, r: 78, b: 44, l: 20 };
+  const C = D.candles;
+  if (!C.length) return;
+
+  let lo = Infinity, hi = -Infinity;
+  for (const c of C) { lo = Math.min(lo, c.l); hi = Math.max(hi, c.h); }
+  const folga = (hi - lo) * 0.06 || 1;
+  lo -= folga; hi += folga;
+  const x = i => P.l + (i + 0.5) * ((W - P.l - P.r) / C.length);
+  const y = p => P.t + (hi - p) / (hi - lo) * (H - P.t - P.b);
+  const larg = Math.max(2, ((W - P.l - P.r) / C.length) * 0.62);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "22px Consolas, ui-monospace, monospace";
+  ctx.textBaseline = "middle";
+
+  // grade horizontal + escala de preço à direita
+  ctx.strokeStyle = cor("--line"); ctx.fillStyle = cor("--faint"); ctx.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const p = lo + (hi - lo) * k / 4, yy = Math.round(y(p)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(P.l, yy); ctx.lineTo(W - P.r, yy); ctx.stroke();
+    ctx.fillText(fmt(Math.round(p)), W - P.r + 10, yy);
+  }
+
+  // separadores de dia + rótulo
+  let diaAnterior = null;
+  ctx.textAlign = "center";
+  C.forEach((c, i) => {
+    const dia = c.ts.slice(0, 10);
+    if (diaAnterior && dia !== diaAnterior) {
+      ctx.strokeStyle = cor("--line");
+      ctx.beginPath(); ctx.moveTo(x(i) - larg, P.t); ctx.lineTo(x(i) - larg, H - P.b); ctx.stroke();
+      ctx.fillStyle = cor("--faint");
+      ctx.fillText(dia.slice(8, 10) + "/" + dia.slice(5, 7), x(i) + 30, H - P.b + 22);
+    }
+    if (!diaAnterior) {
+      ctx.fillStyle = cor("--faint");
+      ctx.fillText(dia.slice(8, 10) + "/" + dia.slice(5, 7), x(i) + 30, H - P.b + 22);
+    }
+    diaAnterior = dia;
+  });
+  ctx.textAlign = "left";
+
+  // candles
+  C.forEach((c, i) => {
+    const sobe = c.c >= c.o;
+    ctx.strokeStyle = ctx.fillStyle = sobe ? cor("--alta") : cor("--baixa");
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x(i), y(c.h)); ctx.lineTo(x(i), y(c.l)); ctx.stroke();
+    const alt = Math.max(2, Math.abs(y(c.o) - y(c.c)));
+    ctx.fillRect(x(i) - larg / 2, y(Math.max(c.o, c.c)), larg, alt);
+  });
+
+  // médias
+  const linha = (serie, c, w) => {
+    ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+    serie.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
+    ctx.stroke();
+  };
+  linha(D.ema_lenta, cor("--ema50"), 3);
+  linha(D.ema_rapida, cor("--ema10-vivid"), 3);
+
+  // marcadores de trade
+  const idx = new Map(C.map((c, i) => [c.ts, i]));
+  for (const t of D.trades) {
+    const ie = idx.get(t.entrada_ts), is = idx.get(t.saida_ts);
+    if (ie === undefined) continue;
+    const compra = t.lado === "compra";
+    const c = compra ? cor("--alta") : cor("--baixa");
+    const py = compra ? y(C[ie].l) + 26 : y(C[ie].h) - 26;
+    ctx.fillStyle = c; ctx.beginPath();
+    ctx.moveTo(x(ie), py + (compra ? -13 : 13));
+    ctx.lineTo(x(ie) - 9, py + (compra ? 9 : -9));
+    ctx.lineTo(x(ie) + 9, py + (compra ? 9 : -9));
+    ctx.closePath(); ctx.fill();
+    if (is !== undefined) {
+      ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.moveTo(x(ie), y(C[ie].o)); ctx.lineTo(x(is), y(C[is].c)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(x(is), y(C[is].c), 5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  el("legenda-grafico").textContent =
+    `${C.length} candles de 15 minutos nos últimos 5 pregões · ${D.trades.length} disparos do setup ` +
+    `${D.estrategia} · triângulo marca a entrada, bolinha a saída.`;
+}
+
+function boletas() {
+  if (!D.trades.length) {
+    el("boletas").innerHTML = `<tr><td colspan="5" class="vazio">Nenhum disparo na janela.</td></tr>`;
+    return;
+  }
+  const hora = ts => ts.slice(8, 10) + "/" + ts.slice(5, 7) + " " + ts.slice(11, 16);
+  el("boletas").innerHTML = D.trades.slice().reverse().map(t => {
+    const cls = t.ticks > 0 ? "alta" : t.ticks < 0 ? "baixa" : "neutra";
+    return `<tr>
+      <td>${hora(t.entrada_ts)}${t.hoje ? " <span class=\"chip neutra\">hoje</span>" : ""}</td>
+      <td>${hora(t.saida_ts)}</td>
+      <td><span class="chip ${t.lado === "compra" ? "alta" : "baixa"}">${t.lado}</span></td>
+      <td>${t.saida_por}</td>
+      <td class="${t.ticks > 0 ? "up" : t.ticks < 0 ? "down" : ""}">${t.ticks > 0 ? "+" : ""}${t.ticks} ticks</td>
+    </tr>`;
+  }).join("");
+}
+
+function noticias() {
+  if (!D.manchetes.length) {
+    el("noticias").innerHTML = `<li class="vazio">Sem manchetes no momento.</li>`;
+    return;
+  }
+  el("noticias").innerHTML = D.manchetes.map(n =>
+    `<li><time>${n.hora || "--:--"}</time><a href="${n.link}" target="_blank" rel="noopener">${n.titulo}</a></li>`
+  ).join("");
+}
+
+function regras() {
+  const p = D.parametros;
+  el("regras").innerHTML = `
+    <p><b>Setup:</b> cruzamento de médias exponenciais ${D.estrategia.split("-").pop()} sobre fechamentos de 15 minutos.</p>
+    <p><b>Entrada:</b> na abertura do candle seguinte ao cruzamento, a mercado.</p>
+    <p><b>Stop:</b> ${p.stop_ticks} ticks. <b>Alvo:</b> ${p.alvo_ticks} ticks. Sempre acoplados.</p>
+    <p><b>Custo por giro:</b> ${p.custo_ticks} tick. <b>Deslizamento:</b> ${p.slippage_ticks} tick na entrada e no stop.</p>
+    <p><b>Zeragem:</b> posição fecha no último candle do dia. Daytrade estrito, nunca vira a noite.</p>`;
+}
+
+if (D) { faixa(); stats(); grafico(); boletas(); noticias(); regras(); }
+</script>
+</body>
+</html>
