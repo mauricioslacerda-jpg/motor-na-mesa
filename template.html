@@ -297,34 +297,47 @@ function janelas() {
   });
 }
 
-function cdi() {
-  const c = D.cdi;
-  if (!c) {
-    el("cdi").innerHTML = `<p class="vazio">Dado do Banco Central indisponível neste ciclo.</p>`;
+function comparativo() {
+  const rf = D.renda_fixa, bh = D.buy_hold, alvo = el("cdi");
+  const brl = v => (v < 0 ? "−R$ " : "R$ ") +
+    Math.abs(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  if (!rf) {
+    alvo.innerHTML = `<p class="vazio">Dado do Banco Central indisponível neste ciclo.</p>`;
     return;
   }
-  const robo = D.resultado_janela_liquido;
-  const brl = v => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  el("cdi").innerHTML = `
-    <p>Comparando sobre a banca de teste do projeto, ${brl(c.capital_ref)}, tudo já líquido de
-       imposto. O robô paga 20% de daytrade; o CDB até 180 dias paga 22,5%.</p>
+  const linhas = [
+    ["O robô, com 1 mini", D.resultado_janela_reais, "20%", D.resultado_janela_liquido, true],
+    ["CDB a 100% do CDI", rf.cdi_bruto, "22,5%", rf.cdi_liquido, false],
+    ["Poupança", rf.poupanca_bruto, "isenta", rf.poupanca_bruto, false],
+    ["Ibovespa comprado e segurado", bh.bruto, "15%", bh.liquido, false],
+  ].filter(l => l[1] !== null && l[1] !== undefined)
+   .sort((a, b) => b[3] - a[3]);
+
+  alvo.innerHTML = `
+    <p>Todas as opções com os mesmos ${brl(rf.capital_ref)} da banca de teste, no mesmo
+       período, já líquidas de imposto. Ordenadas pelo que sobrou no bolso.</p>
     <div class="tbl"><table>
-      <thead><tr><th>Onde o dinheiro esteve</th><th>Bruto</th><th>Imposto</th><th>Sobrou</th></tr></thead>
-      <tbody>
-        <tr><td>O robô, com 1 mini</td><td>${brl(D.resultado_janela_reais)}</td><td>20%</td>
-            <td class="${robo >= 0 ? "up" : "down"}">${brl(robo)}</td></tr>
-        <tr><td>CDB a 100% do CDI</td><td>${brl(c.reais_bruto)}</td><td>22,5%</td>
-            <td>${brl(c.reais_liquido)}</td></tr>
+      <thead><tr><th>Onde o dinheiro esteve</th><th>Rendeu</th><th>Imposto</th><th>Sobrou</th></tr></thead>
+      <tbody>${linhas.map(([nome, bruto, ir, liq, robo]) => `
+        <tr><td>${robo ? "<b>" + nome + "</b>" : nome}</td>
+            <td>${brl(bruto)}</td><td>${ir}</td>
+            <td class="${liq > 0 ? "up" : liq < 0 ? "down" : ""}">${brl(liq)}</td></tr>`).join("")}
       </tbody>
     </table></div>
-    <p style="font-size:12.5px;color:var(--faint)">CDI de ${String(c.pct).replace(".", ",")}%
-       acumulado em ${c.dias_uteis} dias úteis, de ${c.desde} a ${c.ate}, direto da API do
-       Banco Central (série 12).</p>
+    <p style="font-size:12.5px;color:var(--faint)">CDI de
+       ${String(rf.cdi_pct).replace(".", ",")}% acumulado em ${rf.dias_uteis} dias úteis
+       (${rf.desde} a ${rf.ate}) e poupança de
+       ${rf.poupanca_pct === null ? "—" : String(rf.poupanca_pct).replace(".", ",") + "% no mês"},
+       direto da API do Banco Central (séries 12 e 195). Ibovespa comprado e segurado:
+       ${String(bh.pct).replace(".", ",")}% no período, calculado sobre os mesmos candles
+       que o robô operou. Imposto de daytrade 20%, CDB até 180 dias 22,5%, ações 15%.</p>
     <div class="regra">
-      <p><b>O número sozinho não decide nada.</b> Para ganhar isso, o robô aceitou um tombo de
-         ${brl(D.metricas_janela.max_drawdown_ticks)} no caminho. O CDI rendeu sem oscilar um
-         centavo. E ${D.metricas_janela.total} boletas não são amostra: o projeto só considera
-         um resultado válido a partir de 100 operações.</p>
+      <p><b>A tabela sozinha não decide nada.</b> Para chegar nesse número, o robô aceitou um
+         tombo de ${brl(D.metricas_janela.max_drawdown_ticks)} no caminho. O CDI e a poupança
+         renderam sem oscilar um centavo. E ${D.metricas_janela.total} boletas não são amostra:
+         o projeto só considera um resultado válido a partir de 100 operações.</p>
+      <p><b>Repara na última linha.</b> Quem simplesmente comprou o Ibovespa e não fez nada
+         ficou atrás da poupança no período. O robô operou exatamente esse índice.</p>
     </div>`;
 }
 
@@ -366,7 +379,7 @@ function regras() {
     <p><b>Zeragem:</b> posição fecha no último candle do dia. Daytrade estrito, nunca vira a noite.</p>`;
 }
 
-if (D) { faixa(); stats(); grafico(); janelas(); cdi(); boletas(); noticias(); regras(); }
+if (D) { faixa(); stats(); grafico(); janelas(); comparativo(); boletas(); noticias(); regras(); }
 </script>
 </body>
 </html>

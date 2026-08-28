@@ -34,8 +34,9 @@ RSS_INFOMONEY = "https://www.infomoney.com.br/feed/"
 INICIO_PROJETO = date(2026, 7, 26)   # dia 1 do projeto; o painel conta a mesma
                                      # história que o artefato, sem janela móvel
 SGS_CDI = 12               # Banco Central, série 12: CDI diário (% a.d.)
+SGS_POUPANCA = 195         # Banco Central, série 195: rendimento mensal da poupança
 CAPITAL_REF = 5000.0       # banca de teste declarada em claude.md (< R$ 5.000)
-IR_DAYTRADE, IR_CDB = 0.20, 0.225
+IR_DAYTRADE, IR_CDB, IR_ACOES = 0.20, 0.225, 0.15
 MAX_MANCHETES = 10
 ABRE, FECHA = time(8, 0), time(18, 5)
 RAIZ = Path(__file__).parent
@@ -132,32 +133,45 @@ def baixar_manchetes() -> list[dict]:
     return itens
 
 
-def baixar_cdi(desde: date) -> dict | None:
-    """CDI acumulado desde a data dada (API pública do Banco Central).
-
-    Serve ao Nulo 1 do Benchmark Triplo (custo de oportunidade). Falha de rede
-    não derruba o painel: devolve None e o cartão some.
-    """
-    hoje = datetime.now(TZ).date()
-    url = (f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{SGS_CDI}/dados"
-           f"?formato=json&dataInicial={desde:%d/%m/%Y}&dataFinal={hoje:%d/%m/%Y}")
+def _sgs(serie_id: int, desde: date, ate: date) -> list[dict] | None:
+    url = (f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{serie_id}/dados"
+           f"?formato=json&dataInicial={desde:%d/%m/%Y}&dataFinal={ate:%d/%m/%Y}")
     try:
         req = urllib.request.Request(url, headers=UA)
         with urllib.request.urlopen(req, timeout=20) as resposta:
-            serie = json.load(resposta)
+            return json.load(resposta)
     except Exception as erro:              # noqa: BLE001 — fonte externa, best effort
-        print(f"[aviso] CDI indisponivel: {erro}", file=sys.stderr)
+        print(f"[aviso] SGS {serie_id} indisponivel: {erro}", file=sys.stderr)
         return None
-    if not serie:
+
+
+def baixar_renda_fixa(desde: date) -> dict | None:
+    """CDI acumulado e poupança no período (API pública do Banco Central).
+
+    Serve ao Nulo 1 do Benchmark Triplo (custo de oportunidade). Falha de rede
+    não derruba o painel: devolve None e a seção some.
+    """
+    hoje = datetime.now(TZ).date()
+    cdi = _sgs(SGS_CDI, desde, hoje)
+    if not cdi:
         return None
     acum = 1.0
-    for dia in serie:
+    for dia in cdi:
         acum *= 1 + float(dia["valor"]) / 100
     pct = (acum - 1) * 100
-    return {"pct": round(pct, 4), "dias_uteis": len(serie),
-            "ate": serie[-1]["data"], "desde": f"{desde:%d/%m/%Y}",
-            "reais_bruto": round(CAPITAL_REF * pct / 100, 2),
-            "reais_liquido": round(CAPITAL_REF * pct / 100 * (1 - IR_CDB), 2),
+
+    # Poupança: a série 195 dá o rendimento de UM MÊS para o depósito feito
+    # naquela data. Usamos o valor do primeiro dia da janela.
+    poup = _sgs(SGS_POUPANCA, desde, desde + timedelta(days=3))
+    pct_poup = float(poup[0]["valor"]) if poup else None
+
+    return {"cdi_pct": round(pct, 4), "dias_uteis": len(cdi),
+            "ate": cdi[-1]["data"], "desde": f"{desde:%d/%m/%Y}",
+            "cdi_bruto": round(CAPITAL_REF * pct / 100, 2),
+            "cdi_liquido": round(CAPITAL_REF * pct / 100 * (1 - IR_CDB), 2),
+            "poupanca_pct": pct_poup,
+            "poupanca_bruto": (round(CAPITAL_REF * pct_poup / 100, 2)
+                               if pct_poup is not None else None),
             "capital_ref": CAPITAL_REF}
 
 
@@ -170,7 +184,7 @@ def classificar_saida(resultado_ticks: float, ultimo_do_dia: bool) -> str:
     return "zeragem" if ultimo_do_dia else "gap"
 
 
-def montar_dados(candles: list[Candle], manchetes: list[dict], cdi: dict | None,
+def montar_dados(candles: list[Candle], manchetes: list[dict], renda_fixa: dict | None,
                  agora: datetime, motivo: str, selo: str) -> dict:
     estrategia = EstrategiaCruzamentoEMA(EMA_RAPIDA, EMA_LENTA,
                                          stop_ticks=STOP_TICKS, alvo_ticks=ALVO_TICKS)
@@ -217,7 +231,16 @@ def montar_dados(candles: list[Candle], manchetes: list[dict], cdi: dict | None,
         "ema_lenta": [round(v, 1) for v in ema(fechamentos, EMA_LENTA)],
         "trades": trades,
         "manchetes": manchetes,
-        "cdi": cdi,
+        "renda_fixa": renda_fixa,
+        "buy_hold": {
+            "pct": round((candles[-1].fechamento / candles[0].abertura - 1) * 100, 4),
+            "bruto": round(CAPITAL_REF
+                           * (candles[-1].fechamento / candles[0].abertura - 1), 2),
+            "liquido": round(CAPITAL_REF
+                             * (candles[-1].fechamento / candles[0].abertura - 1)
+                             * (1 - IR_ACOES), 2),
+            "capital_ref": CAPITAL_REF,
+        },
         "resultado_janela_reais": round(sum(t["ticks"] for t in trades), 2),
         "resultado_janela_liquido": round(
             sum(t["ticks"] for t in trades) * (1 - IR_DAYTRADE), 2),
@@ -273,8 +296,8 @@ def main() -> int:
         selo = "pregao fechado hoje"
 
     manchetes = [] if encerrado else baixar_manchetes()
-    cdi = baixar_cdi(candles[0].ts.date())
-    publicar(montar_dados(candles, manchetes, cdi, agora, motivo, selo))
+    renda_fixa = baixar_renda_fixa(candles[0].ts.date())
+    publicar(montar_dados(candles, manchetes, renda_fixa, agora, motivo, selo))
     return 0
 
 
