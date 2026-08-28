@@ -54,6 +54,14 @@
   figure { margin:18px 0 6px; background:var(--surface); border:1px solid var(--line);
            border-radius:6px; padding:14px 14px 8px; }
   figcaption { font-size:12.5px; color:var(--muted); padding:6px 4px 8px; max-width:70ch; }
+  .janelas { display:flex; gap:6px; flex-wrap:wrap; padding:2px 4px 10px; }
+  .janelas button { font:600 12.5px "Segoe UI",system-ui,sans-serif; color:var(--muted);
+                    background:var(--surface2); border:1px solid var(--line); border-radius:999px;
+                    padding:5px 14px; cursor:pointer; }
+  .janelas button:hover { color:var(--ink); }
+  .janelas button[aria-pressed="true"] { background:var(--chip-alta); color:var(--alta);
+                                         border-color:var(--alta); }
+  .janelas button:focus-visible { outline:2px solid var(--ema10); outline-offset:2px; }
   .legenda { display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); padding:2px 4px 10px; }
   .legenda i { display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin-right:6px; }
   canvas { width:100%; height:auto; display:block; }
@@ -96,6 +104,11 @@
 
   <h2>O pregão e os disparos</h2>
   <figure>
+    <div class="janelas" role="group" aria-label="Período do gráfico">
+      <button type="button" data-dias="1" aria-pressed="true">Hoje</button>
+      <button type="button" data-dias="5" aria-pressed="false">Semana</button>
+      <button type="button" data-dias="0" aria-pressed="false">Mês</button>
+    </div>
     <div class="legenda">
       <span><i style="background:var(--ema10)"></i>média rápida (10)</span>
       <span><i style="background:var(--ema50)"></i>média lenta (50)</span>
@@ -106,7 +119,10 @@
     <figcaption id="legenda-grafico"></figcaption>
   </figure>
 
-  <h2>Boletas da janela</h2>
+  <h2>Isso rende mais que o banco?</h2>
+  <div id="cdi"></div>
+
+  <h2>Boletas do mês</h2>
   <div class="tbl"><table>
     <thead><tr><th>Entrada</th><th>Saída</th><th>Lado</th><th>Saiu por</th><th>Resultado</th></tr></thead>
     <tbody id="boletas"></tbody>
@@ -125,8 +141,11 @@
     <p><b>O motor é pessimista de propósito.</b> Gap que atravessa o stop preenche na abertura, não
        no stop; stop e alvo no mesmo candle, o stop bateu primeiro; entrada e stop pagam
        deslizamento; posição nunca vira o dia. Se o número aparece bom aqui, é apesar disso.</p>
+    <p><b>O período.</b> A série vai do dia 1 do projeto (26 de julho) até o último candle
+       fechado. As médias precisam de 50 candles para começar a valer, então os primeiros
+       dois pregões não geram sinal — é aquecimento, não silêncio.</p>
     <p><b>Fontes e limites.</b> Preços do Yahoo Finance (Ibovespa, candles de 15 minutos, atraso
-       de cerca de 15 min). Manchetes do RSS do InfoMoney. O Ibovespa é o índice à vista, não o
+       de cerca de 15 min). Manchetes do RSS do InfoMoney. CDI da API do Banco Central (série 12). O Ibovespa é o índice à vista, não o
        mini-índice futuro — serve para ver o motor funcionando, não para aprovar estratégia.</p>
     <p><b>Isto não é recomendação de investimento.</b> Amostra curta não aprova nada: a aprovação
        depende dos gates do projeto (backtest duplo concordante, 100 trades em simulador, tetos de
@@ -154,11 +173,20 @@ function stats() {
     [`${v === null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2) + "%"}`, "variação no dia", cls(v)],
     [`${d.total}`, "disparos hoje", ""],
     [`${d.resultado_ticks > 0 ? "+" : ""}${d.resultado_ticks}`, "resultado de hoje, em ticks", cls(d.resultado_ticks)],
-    [`${j.total}`, "disparos na janela de 5 dias", ""],
-    [`${j.fator_de_lucro === null ? "—" : j.fator_de_lucro}`, "fator de lucro da janela", ""],
+    [`${j.total}`, "disparos desde o dia 1 do projeto", ""],
+    [`${j.fator_de_lucro === null ? "—" : j.fator_de_lucro}`, "fator de lucro no período", ""],
   ];
   el("stats").innerHTML = cartoes.map(([b, s, c]) =>
     `<div class="stat"><b class="${c}">${b}</b><span>${s}</span></div>`).join("");
+}
+
+const DIAS = [...new Set(D.candles.map(c => c.ts.slice(0, 10)))];
+let JANELA = 1;                       // dias visíveis; 0 = tudo
+
+function recorte() {
+  if (!JANELA || JANELA >= DIAS.length) return D.candles;
+  const corte = DIAS[DIAS.length - JANELA];
+  return D.candles.filter(c => c.ts.slice(0, 10) >= corte);
 }
 
 function grafico() {
@@ -166,7 +194,8 @@ function grafico() {
   const css = getComputedStyle(document.documentElement);
   const cor = n => css.getPropertyValue(n).trim();
   const W = cv.width, H = cv.height, P = { t: 24, r: 78, b: 44, l: 20 };
-  const C = D.candles;
+  const C = recorte();
+  const off = D.candles.length - C.length;
   if (!C.length) return;
 
   let lo = Infinity, hi = -Infinity;
@@ -224,8 +253,8 @@ function grafico() {
     serie.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
     ctx.stroke();
   };
-  linha(D.ema_lenta, cor("--ema50"), 3);
-  linha(D.ema_rapida, cor("--ema10-vivid"), 3);
+  linha(D.ema_lenta.slice(off), cor("--ema50"), 3);
+  linha(D.ema_rapida.slice(off), cor("--ema10-vivid"), 3);
 
   // marcadores de trade
   const idx = new Map(C.map((c, i) => [c.ts, i]));
@@ -248,9 +277,55 @@ function grafico() {
     }
   }
 
+  const visiveis = D.trades.filter(t => idx.get(t.entrada_ts) !== undefined).length;
+  const rotulo = !JANELA || JANELA >= DIAS.length ? `${DIAS.length} pregões`
+               : JANELA === 1 ? "o último pregão" : `os últimos ${JANELA} pregões`;
   el("legenda-grafico").textContent =
-    `${C.length} candles de 15 minutos nos últimos 5 pregões · ${D.trades.length} disparos do setup ` +
-    `${D.estrategia} · triângulo marca a entrada, bolinha a saída.`;
+    `${C.length} candles de 15 minutos em ${rotulo} · ${visiveis} de ${D.trades.length} disparos do setup ` +
+    `${D.estrategia} aparecem aqui · triângulo marca a entrada, bolinha a saída.`;
+}
+
+function janelas() {
+  document.querySelectorAll(".janelas button").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".janelas button")
+        .forEach(o => o.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", "true");
+      JANELA = Number(b.dataset.dias);
+      grafico();
+    });
+  });
+}
+
+function cdi() {
+  const c = D.cdi;
+  if (!c) {
+    el("cdi").innerHTML = `<p class="vazio">Dado do Banco Central indisponível neste ciclo.</p>`;
+    return;
+  }
+  const robo = D.resultado_janela_liquido;
+  const brl = v => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  el("cdi").innerHTML = `
+    <p>Comparando sobre a banca de teste do projeto, ${brl(c.capital_ref)}, tudo já líquido de
+       imposto. O robô paga 20% de daytrade; o CDB até 180 dias paga 22,5%.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Onde o dinheiro esteve</th><th>Bruto</th><th>Imposto</th><th>Sobrou</th></tr></thead>
+      <tbody>
+        <tr><td>O robô, com 1 mini</td><td>${brl(D.resultado_janela_reais)}</td><td>20%</td>
+            <td class="${robo >= 0 ? "up" : "down"}">${brl(robo)}</td></tr>
+        <tr><td>CDB a 100% do CDI</td><td>${brl(c.reais_bruto)}</td><td>22,5%</td>
+            <td>${brl(c.reais_liquido)}</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:12.5px;color:var(--faint)">CDI de ${String(c.pct).replace(".", ",")}%
+       acumulado em ${c.dias_uteis} dias úteis, de ${c.desde} a ${c.ate}, direto da API do
+       Banco Central (série 12).</p>
+    <div class="regra">
+      <p><b>O número sozinho não decide nada.</b> Para ganhar isso, o robô aceitou um tombo de
+         ${brl(D.metricas_janela.max_drawdown_ticks)} no caminho. O CDI rendeu sem oscilar um
+         centavo. E ${D.metricas_janela.total} boletas não são amostra: o projeto só considera
+         um resultado válido a partir de 100 operações.</p>
+    </div>`;
 }
 
 function boletas() {
@@ -291,7 +366,7 @@ function regras() {
     <p><b>Zeragem:</b> posição fecha no último candle do dia. Daytrade estrito, nunca vira a noite.</p>`;
 }
 
-if (D) { faixa(); stats(); grafico(); boletas(); noticias(); regras(); }
+if (D) { faixa(); stats(); grafico(); janelas(); cdi(); boletas(); noticias(); regras(); }
 </script>
 </body>
 </html>

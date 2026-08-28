@@ -31,6 +31,11 @@ CUSTO_TICKS = 0.5          # emolumentos B3 ~R$0,50 round-trip (finds.md 2026-07
 STOP_TICKS, ALVO_TICKS = 40, 80
 EMA_RAPIDA, EMA_LENTA = 10, 50
 RSS_INFOMONEY = "https://www.infomoney.com.br/feed/"
+INICIO_PROJETO = date(2026, 7, 26)   # dia 1 do projeto; o painel conta a mesma
+                                     # história que o artefato, sem janela móvel
+SGS_CDI = 12               # Banco Central, série 12: CDI diário (% a.d.)
+CAPITAL_REF = 5000.0       # banca de teste declarada em claude.md (< R$ 5.000)
+IR_DAYTRADE, IR_CDB = 0.20, 0.225
 MAX_MANCHETES = 10
 ABRE, FECHA = time(8, 0), time(18, 5)
 RAIZ = Path(__file__).parent
@@ -64,8 +69,15 @@ def prazo_encerrado(hoje: date) -> tuple[bool, str]:
 
 # ---------------------------------------------------------------- coleta
 def baixar_candles() -> list[Candle]:
+    """Série de 15 min desde o dia 1 do projeto. O Yahoo entrega no máximo ~60
+    dias nesse intervalo; passando disso, cai para a janela móvel de 2 meses."""
+    inicio = datetime.combine(INICIO_PROJETO, time(0, 0), TZ)
+    if (datetime.now(TZ) - inicio).days <= 55:
+        janela = f"period1={int(inicio.timestamp())}&period2={int(datetime.now(TZ).timestamp())}"
+    else:
+        janela = "range=2mo"
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.request.quote(SIMBOLO)}?interval=15m&range=5d")
+           f"{urllib.request.quote(SIMBOLO)}?interval=15m&{janela}")
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=30) as resposta:
         d = json.load(resposta)
@@ -120,6 +132,35 @@ def baixar_manchetes() -> list[dict]:
     return itens
 
 
+def baixar_cdi(desde: date) -> dict | None:
+    """CDI acumulado desde a data dada (API pública do Banco Central).
+
+    Serve ao Nulo 1 do Benchmark Triplo (custo de oportunidade). Falha de rede
+    não derruba o painel: devolve None e o cartão some.
+    """
+    hoje = datetime.now(TZ).date()
+    url = (f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{SGS_CDI}/dados"
+           f"?formato=json&dataInicial={desde:%d/%m/%Y}&dataFinal={hoje:%d/%m/%Y}")
+    try:
+        req = urllib.request.Request(url, headers=UA)
+        with urllib.request.urlopen(req, timeout=20) as resposta:
+            serie = json.load(resposta)
+    except Exception as erro:              # noqa: BLE001 — fonte externa, best effort
+        print(f"[aviso] CDI indisponivel: {erro}", file=sys.stderr)
+        return None
+    if not serie:
+        return None
+    acum = 1.0
+    for dia in serie:
+        acum *= 1 + float(dia["valor"]) / 100
+    pct = (acum - 1) * 100
+    return {"pct": round(pct, 4), "dias_uteis": len(serie),
+            "ate": serie[-1]["data"], "desde": f"{desde:%d/%m/%Y}",
+            "reais_bruto": round(CAPITAL_REF * pct / 100, 2),
+            "reais_liquido": round(CAPITAL_REF * pct / 100 * (1 - IR_CDB), 2),
+            "capital_ref": CAPITAL_REF}
+
+
 # ---------------------------------------------------------------- motor
 def classificar_saida(resultado_ticks: float, ultimo_do_dia: bool) -> str:
     if abs(resultado_ticks - (ALVO_TICKS - CUSTO_TICKS)) < 1e-6:
@@ -129,7 +170,7 @@ def classificar_saida(resultado_ticks: float, ultimo_do_dia: bool) -> str:
     return "zeragem" if ultimo_do_dia else "gap"
 
 
-def montar_dados(candles: list[Candle], manchetes: list[dict],
+def montar_dados(candles: list[Candle], manchetes: list[dict], cdi: dict | None,
                  agora: datetime, motivo: str, selo: str) -> dict:
     estrategia = EstrategiaCruzamentoEMA(EMA_RAPIDA, EMA_LENTA,
                                          stop_ticks=STOP_TICKS, alvo_ticks=ALVO_TICKS)
@@ -176,6 +217,10 @@ def montar_dados(candles: list[Candle], manchetes: list[dict],
         "ema_lenta": [round(v, 1) for v in ema(fechamentos, EMA_LENTA)],
         "trades": trades,
         "manchetes": manchetes,
+        "cdi": cdi,
+        "resultado_janela_reais": round(sum(t["ticks"] for t in trades), 2),
+        "resultado_janela_liquido": round(
+            sum(t["ticks"] for t in trades) * (1 - IR_DAYTRADE), 2),
         "metricas_janela": {
             "total": resultado.total,
             "acertos": sum(1 for t in resultado.trades if t.resultado_ticks > 0),
@@ -228,7 +273,8 @@ def main() -> int:
         selo = "pregao fechado hoje"
 
     manchetes = [] if encerrado else baixar_manchetes()
-    publicar(montar_dados(candles, manchetes, agora, motivo, selo))
+    cdi = baixar_cdi(candles[0].ts.date())
+    publicar(montar_dados(candles, manchetes, cdi, agora, motivo, selo))
     return 0
 
 
